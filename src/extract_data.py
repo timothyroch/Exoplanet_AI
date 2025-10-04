@@ -36,9 +36,25 @@ for c in missing:
     X[c] = np.nan
 
 # ---- 4) Optional engineered features (cheap & helpful) ----
+
+# This line creates a new feature called log_period, which is the natural 
+# logarithm of the planet’s orbital period (koi_period)
+# np.log1p(x) = log(1 + x) — it’s numerically safer when x is small or zero
 X["log_period"] = np.log1p(df["koi_period"])
+
+# This is the fraction of time the object is transiting compared to its full orbital period
+# Planets typically have short transit durations relative to their period.
+# False positives (e.g., binary stars) may show different duration-to-period ratios.
+
 with np.errstate(divide="ignore", invalid="ignore"):
+# np.errstate(divide="ignore", invalid="ignore") prevents annoying divide-by-zero warnings.
+# .replace([np.inf, -np.inf], np.nan) ensures that divisions like duration / 0 become NaN, 
+# not infinite — XGBoost can handle NaNs
     X["dur_over_per"] = (df["koi_duration"] / df["koi_period"]).replace([np.inf, -np.inf], np.nan)
+
+# Creates another derived feature combining transit depth (how much light dims) and duration.
+# A rough proxy for signal strength — deeper and longer transits usually mean a stronger or 
+# more easily detectable signal.
 X["depth_sqrt_dur"] = df["koi_depth"] * np.sqrt(np.clip(df["koi_duration"], 0, None))
 
 # Ensure fp flags are ints (XGBoost handles ints/bools fine)
@@ -49,6 +65,12 @@ for c in ["koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec"]:
 y = df["label"].copy()
 
 # ---- 5) Save artifacts for train/visualize ----
+# Create the output directory and export all artifacts for downstream use:
+#   - X.parquet: feature matrix (includes engineered features and consistent schema)
+#   - y.csv: target labels (Confirmed / Candidate / False)
+#   - feature_list.joblib: list of feature names to ensure consistent column order
+#   - groups.csv (optional): kepid identifiers for group-based CV / leakage-safe splits
+
 os.makedirs("../build", exist_ok=True)
 X.to_parquet("../build/X.parquet", index=False)
 y.to_csv("../build/y.csv", index=False)
