@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TOIs in CesiumJS (RA/Dec on Celestial Sphere)</title>
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    .hud {
+      position: absolute; left: 10px; top: 10px; display: flex; gap: 8px; align-items: center; z-index: 10;
+      background: rgba(0,0,0,.6); color: #fff; padding: 8px 10px; border-radius: 8px; font: 12px/1.3 system-ui, sans-serif;
+    }
+    .legend { margin-left: 8px; }
+    .legend div { line-height: 1.25; }
+    input[type="file"] { font-size: 12px; }
+  </style>
+
+  <!-- CesiumJS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/Widgets/widgets.css">
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/Cesium.js"></script>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+
+<div class="hud">
+  <label>
+    <b>Load CSV:</b>
+    <input id="fileInput" type="file" accept=".csv,text/csv" />
+  </label>
+  <div class="legend">
+    <div><b>TFOPWG Disposition</b></div>
+    <div><span style="color:#4ade80;">●</span> PC &nbsp; <span style="color:#f87171;">●</span> FP</div>
+    <div><span style="color:#60a5fa;">●</span> KP &nbsp; <span style="color:#fb923c;">●</span> CP</div>
+    <div style="opacity:.8">Lon = 180 − RA°, Lat = Dec°</div>
+  </div>
+</div>
+
+<script>
+  // --- Cesium viewer setup ---
+  window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/';
+  const viewer = new Cesium.Viewer("cesiumContainer", {
+    terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+    timeline: false,
+    animation: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    navigationHelpButton: false,
+    sceneModePicker: true,
+    infoBox: true,
+    selectionIndicator: true,
+    skyAtmosphere: false,
+    shouldAnimate: false
+  });
+
+  // Dark, blank globe (so dots read like stars)
+  viewer.imageryLayers.removeAll();
+  viewer.scene.globe.show = true;
+  viewer.scene.globe.baseColor = Cesium.Color.BLACK;
+  viewer.scene.skyBox = undefined;
+  viewer.scene.backgroundColor = Cesium.Color.BLACK;
+
+  // Use a DataSource for entities 
+  const toisSource = new Cesium.CustomDataSource("tois");
+  viewer.dataSources.add(toisSource);
+
+  // Enable clustering properly
+  const clustering = toisSource.clustering;
+  clustering.enabled = true;
+  clustering.pixelRange = 40;
+  clustering.minimumClusterSize = 3;
+
+  // --- helpers ---
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#'));
+    if (!lines.length) return [];
+    const header = lines[0].split(',').map(h => h.trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (!cols.length) continue;
+      const obj = {};
+      header.forEach((h, idx) => obj[h] = (cols[idx] ?? '').trim());
+      rows.push(obj);
+    }
+    return rows;
+  }
+
+  function colorFor(tfop) {
+    switch ((tfop || '').toUpperCase()) {
+      case 'PC': return Cesium.Color.fromCssColorString('#4ade80'); // green
+      case 'KP': return Cesium.Color.fromCssColorString('#60a5fa'); // blue
+      case 'CP': return Cesium.Color.fromCssColorString('#fb923c'); // orange
+      default:   return Cesium.Color.fromCssColorString('#f87171'); // red (FP/unknown)
+    }
+  }
+
+  function addTOIs(rows) {
+    const entities = toisSource.entities;
+    entities.removeAll();
+
+    rows.forEach(r => {
+      const ra = parseFloat(r.ra);
+      const dec = parseFloat(r.dec);
+      if (!isFinite(ra) || !isFinite(dec)) return;
+
+      // RA/Dec → celestial lon/lat (lon = 180 − RA to match left-increasing RA)
+      const lon = 180.0 - ra;
+      const lat = dec;
+
+      const toi = r.toi || '';
+      const tfop = r.tfopwg_disp || '';
+      const tmag = Number(r.st_tmag);
+      const color = colorFor(tfop);
+
+      let px = 8;
+      if (isFinite(tmag)) px = Math.max(3, Math.min(12, 14 - (tmag - 8)));
+
+      const pos = Cesium.Cartesian3.fromDegrees(lon, lat, 1.0e7);
+
+      entities.add({
+        position: pos,
+        point: {
+          pixelSize: px,
+          color,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        },
+        label: {
+          text: `TOI ${toi} (${tfop || "?"})`,
+          font: '12px sans-serif',
+          fillColor: Cesium.Color.GRAY,
+          pixelOffset: new Cesium.Cartesian2(10, -8),
+          horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2.0e8)
+        },
+        properties: r
+      });
+
+      // Optional: simple proper-motion direction indicator (visual only)
+      const pmra = parseFloat(r.st_pmra);
+      const pmdec = parseFloat(r.st_pmdec);
+      if (isFinite(pmra) && isFinite(pmdec) && (Math.abs(pmra) + Math.abs(pmdec) > 0)) {
+        const scale = 500; // visual exaggeration factor
+        const dLon = -(pmra) / 3.6e6 * scale; // sign to match lon=180−RA
+        const dLat =  (pmdec) / 3.6e6 * scale;
+
+        const p0 = Cesium.Cartesian3.fromDegrees(lon, lat, 1.05e7);
+        const p1 = Cesium.Cartesian3.fromDegrees(lon + dLon, lat + dLat, 1.05e7);
+        entities.add({
+          polyline: {
+            positions: [p0, p1],
+            width: 1,
+            material: Cesium.Color.fromAlpha(color, 0.8),
+            clampToGround: false
+          }
+        });
+      }
+    });
+
+    if (toisSource.entities.values.length) {
+      viewer.zoomTo(toisSource);
+    }
+  }
+
+  // File loader: pick your NasaExoplanetArchive.csv
+  document.getElementById('fileInput').addEventListener('change', (ev) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      const rows = parseCSV(text);
+      addTOIs(rows);
+    };
+    reader.readAsText(f);
+  });
+</script>
+</body>
+</html>
