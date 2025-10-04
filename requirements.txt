@@ -1,0 +1,17 @@
+# === Core dependencies ===
+pandas>=2.0
+numpy>=1.25
+
+# === Machine Learning ===
+scikit-learn>=1.3
+xgboost>=2.0
+joblib>=1.3
+
+# === Visualization ===
+matplotlib>=3.7
+
+# === Optional: for saving data in Parquet format ===
+pyarrow>=14.0
+
+# === Optional: for local web apps or demos ===
+streamlit>=1.37
