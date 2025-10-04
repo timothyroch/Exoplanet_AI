@@ -9,6 +9,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 # === Load processed data ===
 X = pd.read_parquet("../build/X.parquet")          
 y = pd.read_csv("../build/y.csv")["label"]
+obj_cols = X.select_dtypes(include=["object"]).columns.tolist()
+if obj_cols:
+    print("[train] Dropping non-numeric columns:", obj_cols)
+    X = X.drop(columns=obj_cols)
 
 # === Encode labels to integers 0..K-1 ===
 le = LabelEncoder()
@@ -52,4 +56,4 @@ print("Confusion Matrix (rows=true, cols=pred):\n",
 os.makedirs("../models", exist_ok=True)
 joblib.dump(xgb, "../models/xgb_koi.joblib")
 joblib.dump(le, "../models/label_encoder.joblib")
-print("✅ Saved: ../models/xgb_koi.joblib and ../models/label_encoder.joblib")
+print("Saved: ../models/xgb_koi.joblib and ../models/label_encoder.joblib")
