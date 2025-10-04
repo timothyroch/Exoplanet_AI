@@ -1,32 +1,47 @@
 # extract_data.py
 import os
+
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
 
 # ---- 1) Load KOI (note the path one level up from src) ----
-DF_PATH = "../KOI_data.csv"   # <-- adjust if needed
+DF_PATH = "../KOI_data.csv"  # <-- adjust if needed
 df = pd.read_csv(DF_PATH, comment="#")
 
 # ---- 2) Labels ----
-label_map = {"CONFIRMED": "Confirmed", "CANDIDATE": "Candidate", "FALSE POSITIVE": "False"}
+label_map = {
+    "CONFIRMED": "Confirmed",
+    "CANDIDATE": "Candidate",
+    "FALSE POSITIVE": "False",
+}
 df = df[df["koi_disposition"].notna()].copy()
 df["label"] = df["koi_disposition"].map(label_map)
 df = df[df["label"].isin(["Confirmed", "Candidate", "False"])].copy()
 
-# ---- 3) Base features (KOI cumulative commonly has these) ----
-requested_features = [
-    "koi_period", "koi_duration", "koi_depth", "koi_ror", "koi_impact",
-    "koi_score", "koi_model_snr",
-    "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec",
-    "koi_steff", "koi_slogg", "koi_smet", "koi_kepmag",
+# ---- 3) Whitelisted physical / observational features ----
+# Keep only features that would be known at (or near) initial vetting time.
+# Excluded: post-vetting flags (koi_fpflag_*), disposition score (koi_score).
+WHITELIST_FEATURES = [
+    "koi_period",
+    "koi_duration",  # hours
+    "koi_depth",  # ppm
+    "koi_ror",
+    "koi_impact",
+    "koi_model_snr",
+    "koi_steff",
+    "koi_slogg",
+    "koi_smet",
+    "koi_kepmag",
 ]
 
-available = [c for c in requested_features if c in df.columns]
-missing = [c for c in requested_features if c not in df.columns]
+available = [c for c in WHITELIST_FEATURES if c in df.columns]
+missing = [c for c in WHITELIST_FEATURES if c not in df.columns]
 
 if missing:
-    print(f"[extract_data] Missing columns (will be filled as NaN and handled by XGBoost): {missing}")
+    print(
+        f"[extract_data] Missing columns (will be filled as NaN and handled by XGBoost): {missing}"
+    )
 
 # Build X starting from available columns
 X = df[available].copy()
@@ -35,32 +50,33 @@ X = df[available].copy()
 for c in missing:
     X[c] = np.nan
 
-# ---- 4) Optional engineered features (cheap & helpful) ----
+# ---- 4) Engineered features (align with web/main.py inference logic) ----
+if "koi_period" in X.columns:
+    X["log_period"] = np.log(df["koi_period"].replace(0, np.nan))
+else:
+    X["log_period"] = np.nan
 
-# This line creates a new feature called log_period, which is the natural 
-# logarithm of the planet’s orbital period (koi_period)
-# np.log1p(x) = log(1 + x) — it’s numerically safer when x is small or zero
-X["log_period"] = np.log1p(df["koi_period"])
+if "koi_duration" in X.columns and "koi_period" in X.columns:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        X["dur_over_per"] = (df["koi_duration"] / (df["koi_period"] * 24)).replace(
+            [np.inf, -np.inf], np.nan
+        )
+else:
+    X["dur_over_per"] = np.nan
 
-# This is the fraction of time the object is transiting compared to its full orbital period
-# Planets typically have short transit durations relative to their period.
-# False positives (e.g., binary stars) may show different duration-to-period ratios.
+if "koi_depth" in X.columns and "koi_duration" in X.columns:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        X["depth_sqrt_dur"] = np.sqrt(df["koi_depth"]) / df["koi_duration"].replace(
+            0, np.nan
+        )
+else:
+    X["depth_sqrt_dur"] = np.nan
 
-with np.errstate(divide="ignore", invalid="ignore"):
-# np.errstate(divide="ignore", invalid="ignore") prevents annoying divide-by-zero warnings.
-# .replace([np.inf, -np.inf], np.nan) ensures that divisions like duration / 0 become NaN, 
-# not infinite — XGBoost can handle NaNs
-    X["dur_over_per"] = (df["koi_duration"] / df["koi_period"]).replace([np.inf, -np.inf], np.nan)
-
-# Creates another derived feature combining transit depth (how much light dims) and duration.
-# A rough proxy for signal strength — deeper and longer transits usually mean a stronger or 
-# more easily detectable signal.
-X["depth_sqrt_dur"] = df["koi_depth"] * np.sqrt(np.clip(df["koi_duration"], 0, None))
-
-# Ensure fp flags are ints (XGBoost handles ints/bools fine)
-for c in ["koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec"]:
-    if c in X.columns:
-        X[c] = X[c].astype("Int64")  # nullable int is fine
+# Fill any NaNs from engineering with median (fallback to 0 if all NaN)
+for col in ["log_period", "dur_over_per", "depth_sqrt_dur"]:
+    if X[col].isna().any():
+        med = X[col].median()
+        X[col] = X[col].fillna(med if not np.isnan(med) else 0)
 
 y = df["label"].copy()
 

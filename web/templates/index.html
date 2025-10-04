@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exoplanet Prediction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Quicksand", sans-serif;
+      }
+      .form-container {
+        background-color: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(10px);
+      }
+      .result-container {
+        background-color: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+      }
+    </style>
+  </head>
+  <body class="bg-pink-100 text-gray-800 p-8">
+    <div class="max-w-7xl mx-auto">
+      <header class="mb-12">
+        <h1 class="text-5xl font-bold mb-2 text-pink-500">
+          Exoplanet Prediction
+        </h1>
+        <p class="text-lg text-gray-600">
+          Discover new worlds! Enter KOI features to predict their destiny.
+        </p>
+      </header>
+
+      <form
+        action="/"
+        method="post"
+        class="form-container p-8 rounded-2xl shadow-lg border border-white"
+      >
+        <div
+          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-8"
+        >
+          {% for feature, info in feature_info.items() %}
+          <div class="flex flex-col">
+            {% if info.type == 'checkbox' %}
+            <label for="{{ feature }}" class="font-semibold mb-2 text-gray-700"
+              >{{ info.label }}</label
+            >
+            <div>
+              <input type="checkbox" id="{{ feature }}" name="{{ feature }}"
+              value="1" class="hidden bool-checkbox" {% if user_input and
+              user_input[feature] == 1 %}checked{% endif %} />
+              <button
+                type="button"
+                data-target="{{ feature }}"
+                class="bool-toggle w-full rounded-md border-2 border-pink-500 text-pink-500 px-2 py-2 font-semibold cursor-pointer transition-colors duration-200 select-none focus:outline-none focus:ring-2 focus:ring-pink-400"
+                aria-pressed="false"
+              >
+                False
+              </button>
+            </div>
+            {% else %}
+            <label for="{{ feature }}" class="font-semibold mb-2 text-gray-700"
+              >{{ info.label }}</label
+            >
+            <input
+              type="number"
+              step="any"
+              min="{{ info.min }}"
+              max="{{ info.max }}"
+              id="{{ feature }}"
+              name="{{ feature }}"
+              value="{{ user_input[feature] if user_input else info.default }}"
+              required
+              class="p-2 bg-white border border-pink-200 text-gray-800 rounded-md shadow-sm focus:ring-2 focus:ring-pink-400 focus:border-pink-400 transition"
+            />
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="text-center">
+          <button
+            type="submit"
+            class="mt-10 bg-pink-500 text-white py-3 px-8 rounded-full hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 text-xl font-bold transition-all duration-300 ease-in-out"
+          >
+            Predict
+          </button>
+        </div>
+      </form>
+
+      {% if prediction %}
+      <div
+        class="mt-12 p-8 result-container rounded-2xl shadow-lg border border-white"
+      >
+        <div class="text-center text-2xl space-y-4">
+          <p>
+            <strong class="font-bold text-gray-600">Prediction:</strong>
+            <span class="font-bold text-pink-500">{{ prediction }}</span>
+          </p>
+          <p>
+            <strong class="font-bold text-gray-600">Confidence:</strong>
+            <span class="font-bold text-pink-500">{{ confidence }}</span>
+          </p>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </body>
+  <script>
+    // Initialize and wire up JS-based boolean toggles
+    function syncToggle(btn, checkbox) {
+      const isChecked = checkbox.checked;
+      btn.textContent = isChecked ? "True" : "False";
+      btn.setAttribute("aria-pressed", String(isChecked));
+      if (isChecked) {
+        btn.classList.add("bg-pink-500", "text-white");
+        btn.classList.remove("text-pink-500");
+      } else {
+        btn.classList.remove("bg-pink-500", "text-white");
+        btn.classList.add("text-pink-500");
+      }
+    }
+
+    document.querySelectorAll(".bool-toggle").forEach((btn) => {
+      const targetId = btn.getAttribute("data-target");
+      const checkbox = document.getElementById(targetId);
+      if (!checkbox) return;
+      // Initial state
+      syncToggle(btn, checkbox);
+      // Click handler
+      btn.addEventListener("click", () => {
+        checkbox.checked = !checkbox.checked;
+        syncToggle(btn, checkbox);
+      });
+      // Keyboard accessibility (space/enter if focused)
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          checkbox.checked = !checkbox.checked;
+          syncToggle(btn, checkbox);
+        }
+      });
+    });
+  </script>
+</html>
