@@ -165,6 +165,7 @@ The `templates/index.html` renders three main sections:
    * Enter KOI/stellar features → click **Predict**
    * See **Prediction** (Confirmed/Candidate/False) and **Confidence**
    * Form fields are sourced from `filtered_feature_info` in `main.py`, ordered to match the trained `feature_list`.
+   [![Manual entry demo (transit)](https://img.youtube.com/vi/S-hOxUzVjtI/0.jpg)](https://www.youtube.com/watch?v=S-hOxUzVjtI)
 
 2. **KOI Batch predictions (CSV/JSON uploader)**
 
@@ -175,6 +176,8 @@ The `templates/index.html` renders three main sections:
      * builds features + engineered columns (`build_features`)
      * predicts for each row, saves to `web/static/exports/predictions_*.csv`
    * The page shows a preview and a **Download CSV** button.
+     
+     [![Batch upload demo (KOI & spectrometry)](https://img.youtube.com/vi/nXfRZbtsmvQ/0.jpg)](https://www.youtube.com/watch?v=nXfRZbtsmvQ)
 
 3. **Spectrometry predictions (CSV uploader)**
 
@@ -185,13 +188,6 @@ The `templates/index.html` renders three main sections:
      * predicts using LightGBM; saves `spectro_predictions_*.csv` in `static/exports`
    * You get a preview and a **Download CSV** button.
 
-### Drop-in spots for your demo videos (README placeholders)
-
-* **Manual entry demo (transit):**
-  *[video]*
-
-* **Batch upload demo (KOI & spectrometry):**
-  *[video]*
 
 ---
 
