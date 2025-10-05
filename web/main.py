@@ -6,6 +6,16 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from fastapi import UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse
+from fastapi import Query
+import io
+import csv
+import uuid
+import os
+from typing import Optional
+
 
 app = FastAPI()
 
@@ -286,6 +296,86 @@ filtered_feature_info = {
     if key in feature_info and not (key.startswith("koi_fpflag_") or key == "koi_score")
 }
 
+def _read_table_like(raw: bytes, filename: Optional[str]) -> pd.DataFrame:
+    """
+    Robustly read CSV/TSV/JSON with various delimiters, encodings, and comment lines.
+    Tries JSON (lines and standard), then CSV with inferred and explicit seps,
+    and finally a skip-bad-lines fallback.
+    """
+    name = (filename or "").lower()
+
+    # JSON first
+    if name.endswith(".json"):
+        # Try JSON Lines, then normal JSON
+        for kwargs in ({"lines": True}, {}):
+            try:
+                return pd.read_json(io.BytesIO(raw), **kwargs)
+            except Exception:
+                pass
+        raise HTTPException(status_code=400, detail="Could not read JSON (tried lines and standard).")
+
+    # CSV/TSV variants
+    # Order: infer sep, then comma, semicolon, tab; all with python engine and BOM-safe encoding
+    candidates = (
+        dict(sep=None, engine="python", encoding="utf-8-sig", comment="#"),
+        dict(sep=",",  engine="python", encoding="utf-8-sig", comment="#"),
+        dict(sep=";",  engine="python", encoding="utf-8-sig", comment="#"),
+        dict(sep="\t", engine="python", encoding="utf-8-sig", comment="#"),
+    )
+    bio = io.BytesIO(raw)
+    for kwargs in candidates:
+        try:
+            bio.seek(0)
+            return pd.read_csv(bio, **kwargs)
+        except Exception:
+            continue
+
+    # Last resort: skip malformed rows so user still gets something back
+    try:
+        bio.seek(0)
+        return pd.read_csv(
+            bio,
+            sep=None,
+            engine="python",
+            encoding="utf-8-sig",
+            comment="#",
+            on_bad_lines="skip",  # pandas >=1.3
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file as CSV/JSON: {e}")
+
+
+def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Coerce to numeric, create engineered cols to mirror training/web,
+    and order columns to match feature_list. Missing values left as NaN
+    (XGBoost can handle NaNs).
+    """
+    df = df.copy()
+
+    # try to coerce any non-numeric
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # engineer features if raw cols are present
+    if {"koi_period", "koi_duration", "koi_depth"}.issubset(df.columns):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["log_period"] = np.log(df["koi_period"].replace(0, np.nan))
+            df["dur_over_per"] = df["koi_duration"] / (df["koi_period"] * 24)
+            df["depth_sqrt_dur"] = np.sqrt(df["koi_depth"]) / df["koi_duration"].replace(0, np.nan)
+
+    # make sure all expected columns exist (create missing as NaN)
+    for col in feature_list:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    # order columns exactly as training
+    df = df[feature_list]
+
+    return df
+
+
 # Warn if feature_list still contains leakage features
 leakage_keys = [
     k for k in feature_list if k.startswith("koi_fpflag_") or k == "koi_score"
@@ -337,11 +427,6 @@ class KOIFeatures(BaseModel):
     koi_smet: float
 
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse(
-        "index.html", {"request": request, "feature_info": filtered_feature_info}
-    )
 
 
 @app.post("/", response_class=HTMLResponse)
@@ -380,4 +465,62 @@ async def predict(request: Request):
             "confidence": f"{confidence * 100:.1f}%",
             "user_input": features,
         },
+    )
+
+@app.post("/upload")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    raw = await file.read()
+    try:
+        df = _read_table_like(raw, file.filename)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    X = build_features(df)
+    preds = model.predict(X)
+    probs = model.predict_proba(X).max(axis=1)
+
+    df_out = df.copy()
+    df_out["prediction"] = label_encoder.inverse_transform(preds)
+    df_out["confidence"] = np.round(probs * 100, 2)
+
+    exports_dir = os.path.join("static", "exports")
+    os.makedirs(exports_dir, exist_ok=True)
+    fname = f"predictions_{uuid.uuid4().hex[:8]}.csv"
+    save_path = os.path.join(exports_dir, fname)
+    df_out.to_csv(save_path, index=False)
+
+    preview_html = df_out.head(20).to_html(classes="table table-sm", index=False, border=0)
+
+    # Store temporary info in memory (optional improvement — e.g. using a cache or session)
+    # For now, just redirect with query params
+    return RedirectResponse(
+        url=f"/?batch_rows={len(df_out)}&batch_file={fname}", status_code=303
+    )
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root(
+    request: Request,
+    batch_rows: int = Query(None),
+    batch_file: str = Query(None)
+):
+    batch = None
+    if batch_rows and batch_file:
+        file_path = f"static/exports/{batch_file}"
+        if os.path.exists(file_path):
+            df_out = pd.read_csv(file_path)
+            preview_html = df_out.head(20).to_html(classes="table table-sm", index=False, border=0)
+            batch = {
+                "rows": batch_rows,
+                "download_href": f"/{file_path}",
+                "preview_html": preview_html,
+            }
+
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "feature_info": filtered_feature_info, "batch": batch},
     )
