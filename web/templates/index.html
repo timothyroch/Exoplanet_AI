@@ -32,11 +32,11 @@
   <body class="bg-pink-100 text-gray-800 p-8">
     <div class="max-w-7xl mx-auto">
       <header class="mb-12">
-        <h1 class="text-5xl font-bold mb-2 text-pink-500">
+        <h1 class="text-5xl font-bold mb-2 text-blue-500">
           Exoplanet Prediction
         </h1>
         <p class="text-lg text-gray-600">
-          Discover new worlds! Enter KOI features to predict their destiny.
+          Enter personalized enteries for Kepler Object of Interest (KOI) features to predict if they're Exoplanet.
         </p>
       </header>
 
@@ -89,7 +89,7 @@
         <div class="text-center">
           <button
             type="submit"
-            class="mt-10 bg-pink-500 text-white py-3 px-8 rounded-full hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 text-xl font-bold transition-all duration-300 ease-in-out"
+            class="mt-10 bg-blue-500 text-white py-3 px-8 rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 text-xl font-bold transition-all duration-300 ease-in-out"
           >
             Predict
           </button>
@@ -103,11 +103,11 @@
         <div class="text-center text-2xl space-y-4">
           <p>
             <strong class="font-bold text-gray-600">Prediction:</strong>
-            <span class="font-bold text-pink-500">{{ prediction }}</span>
+            <span class="font-bold text-blue-500">{{ prediction }}</span>
           </p>
           <p>
             <strong class="font-bold text-gray-600">Confidence:</strong>
-            <span class="font-bold text-pink-500">{{ confidence }}</span>
+            <span class="font-bold text-blue-500">{{ confidence }}</span>
           </p>
         </div>
       </div>
@@ -121,11 +121,11 @@
       btn.textContent = isChecked ? "True" : "False";
       btn.setAttribute("aria-pressed", String(isChecked));
       if (isChecked) {
-        btn.classList.add("bg-pink-500", "text-white");
-        btn.classList.remove("text-pink-500");
+        btn.classList.add("bg-blue-500", "text-white");
+        btn.classList.remove("text-blue-500");
       } else {
-        btn.classList.remove("bg-pink-500", "text-white");
-        btn.classList.add("text-pink-500");
+        btn.classList.remove("bg-blue-500", "text-white");
+        btn.classList.add("text-blue-500");
       }
     }
 
