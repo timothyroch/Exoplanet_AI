@@ -165,6 +165,7 @@ The `templates/index.html` renders three main sections:
    * Enter KOI/stellar features → click **Predict**
    * See **Prediction** (Confirmed/Candidate/False) and **Confidence**
    * Form fields are sourced from `filtered_feature_info` in `main.py`, ordered to match the trained `feature_list`.
+     
    [![Manual entry demo (transit)](https://img.youtube.com/vi/S-hOxUzVjtI/0.jpg)](https://www.youtube.com/watch?v=S-hOxUzVjtI)
 
 2. **KOI Batch predictions (CSV/JSON uploader)**
