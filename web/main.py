@@ -577,7 +577,7 @@ async def spectro_root(
     batch_file: Optional[str] = Query(None),
 ):
     spectro_batch = None
-    if batch_rows is not None and batch_file:
+    if batch_rows and batch_file:
         file_path = f"static/exports/{batch_file}"
         if os.path.exists(file_path):
             df_out = pd.read_csv(file_path)
@@ -589,14 +589,16 @@ async def spectro_root(
             }
 
     return templates.TemplateResponse(
-        "spectro.html",
+        "index.html",
         {
             "request": request,
-            "spectro_feature_info": {},   # << hide manual form
-            "spectro_batch": spectro_batch,
-            "spectro_user_input": None,
+            "feature_info": filtered_feature_info,  
+            "batch": None,                          
+            "spectro_batch": spectro_batch,         
+            "spectro_error": None,                  # avoid missing var
         },
     )
+
 
 
 @app.post("/spectro", response_class=HTMLResponse)
@@ -625,7 +627,7 @@ async def spectro_predict(request: Request):
     pred_label = macedo_label_encoder.inverse_transform(preds)[0]
 
     return templates.TemplateResponse(
-        "spectro.html",
+        "index.html",
         {
             "request": request,
             "spectro_feature_info": spectro_feature_info,
@@ -637,39 +639,78 @@ async def spectro_predict(request: Request):
 
 @app.post("/spectro/upload")
 async def spectro_upload(request: Request, file: UploadFile = File(...)):
+    # If the spectro model isn't available, render index.html with a friendly message
     if macedo_model is None or macedo_label_encoder is None or macedo_feature_list is None:
-        raise HTTPException(status_code=503, detail="Spectrometry model not available. Please train it first.")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "feature_info": filtered_feature_info,
+                "batch": None,
+                "spectro_error": "Spectrometry model not available. Train it first (the three files should be in ../models_macedo next to /web).",
+            },
+            status_code=400,
+        )
 
+    # Try to read CSV
     raw = await file.read()
     try:
-        # spectrometry expects CSV; reuse _read_table_like if you want broader support
         df = pd.read_csv(io.BytesIO(raw))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not read CSV: {e}")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "feature_info": filtered_feature_info,
+                "batch": None,
+                "spectro_error": f"Could not read CSV: {e}",
+            },
+            status_code=400,
+        )
 
     if df.empty:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "feature_info": filtered_feature_info,
+                "batch": None,
+                "spectro_error": "Uploaded spectrometry file is empty.",
+            },
+            status_code=400,
+        )
 
-    X = prepare_spectro_X(df)
-
+    # Prepare features and predict
     try:
+        X = prepare_spectro_X(df)
         preds = macedo_model.predict(X)
         probs = macedo_model.predict_proba(X).max(axis=1) if hasattr(macedo_model, "predict_proba") else np.ones(len(X))
     except Exception as e:
         cols_list = ", ".join(list(df.columns)[:20]) + ("..." if len(df.columns) > 20 else "")
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}. Parsed columns: [{cols_list}]")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "feature_info": filtered_feature_info,
+                "batch": None,
+                "spectro_error": f"Prediction failed: {e}. Parsed columns: [{cols_list}]",
+            },
+            status_code=500,
+        )
 
-    df_out = df.copy()
-    df_out["prediction"] = macedo_label_encoder.inverse_transform(preds)
-    df_out["confidence"] = np.round(probs * 100, 2)
-
+    # Save output and redirect to /spectro (your current behavior)
     exports_dir = os.path.join("static", "exports")
     os.makedirs(exports_dir, exist_ok=True)
     fname = f"spectro_predictions_{uuid.uuid4().hex[:8]}.csv"
     save_path = os.path.join(exports_dir, fname)
+
+    df_out = df.copy()
+    df_out["prediction"] = macedo_label_encoder.inverse_transform(preds)
+    df_out["confidence"] = np.round(probs * 100, 2)
     df_out.to_csv(save_path, index=False)
 
     return RedirectResponse(
         url=f"/spectro?batch_rows={len(df_out)}&batch_file={fname}",
         status_code=303,
     )
+
