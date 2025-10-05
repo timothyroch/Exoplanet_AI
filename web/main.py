@@ -714,3 +714,6 @@ async def spectro_upload(request: Request, file: UploadFile = File(...)):
         status_code=303,
     )
 
+@app.get("/info", response_class=HTMLResponse)
+async def info_page(request: Request):
+    return templates.TemplateResponse("info.html", {"request": request})

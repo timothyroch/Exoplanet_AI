@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KOI Feature Explanations</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Quicksand", sans-serif;
+        background-image: url("{{ url_for('static', path='planet.jpg') }}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+      }
+      .info-container {
+        background-color: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(10px);
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen text-gray-800 p-8">
+    <div class="max-w-5xl mx-auto info-container p-10 rounded-2xl shadow-lg border border-white">
+      <header class="flex justify-between items-center mb-8">
+        <h1 class="text-4xl font-bold text-blue-600">KOI Variable Guide</h1>
+        <a href="/" class="bg-blue-500 text-white py-2 px-6 rounded-full hover:bg-blue-600 transition">
+          ← Back to Predictor
+        </a>
+      </header>
+
+      <p class="mb-6 text-gray-700 text-lg">
+        Each Kepler Object of Interest (KOI) feature helps the model decide whether an observed signal
+        likely indicates a real exoplanet. Here’s what each variable means:
+      </p>
+
+      <div class="space-y-6">
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Orbital Period [days]</h2>
+          <p>The time it takes for the planet to complete one orbit around its host star.</p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Transit Duration [hrs]</h2>
+          <p>How long the planet takes to pass in front of the star, as seen from Earth.</p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Transit Depth [ppm]</h2>
+          <p>
+            The fractional decrease in starlight during the transit, measured in parts per million.
+            Larger depths mean bigger planets or deeper transits.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Impact Parameter</h2>
+          <p>
+            Describes how centrally the planet crosses the star. A value of 0 means a perfect
+            center-crossing, while values near 1 mean a grazing transit.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Transit Signal-to-Noise</h2>
+          <p>
+            Measures how clearly the transit stands out from background noise.
+            Higher values mean a more confident detection.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Stellar Effective Temperature [K]</h2>
+          <p>
+            The temperature of the star’s surface. Hotter stars (higher K) emit more light and
+            influence the transit’s brightness and depth.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Stellar Surface Gravity [log10(cm/s²)]</h2>
+          <p>
+            The gravitational acceleration at the star’s surface. Lower values indicate larger, puffier stars.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Kepler-band [mag]</h2>
+          <p>
+            The brightness of the star in Kepler’s observation band. Brighter stars have lower magnitude values.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Planet-Star Radius Ratio</h2>
+          <p>
+            The ratio of the planet’s radius to the star’s radius.
+            It determines how much light the planet blocks during transit.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold text-blue-500">Stellar Metallicity [Fe/H]</h2>
+          <p>
+            Indicates how metal-rich the star is compared to the Sun. Higher metallicity often
+            correlates with a higher chance of forming planets.
+          </p>
+        </div>
+      </div>
+
+      <footer class="mt-10 text-sm text-gray-500 text-center">
+        Data reference: <a href="https://exoplanetarchive.ipac.caltech.edu/docs/API_kepcandidate_columns.html"
+          class="text-blue-500 hover:underline" target="_blank" rel="noopener">NASA Exoplanet Archive</a>
+      </footer>
+    </div>
+  </body>
+</html>
