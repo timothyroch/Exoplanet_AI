@@ -1,3 +1,4 @@
+from fastapi.staticfiles import StaticFiles
 import joblib
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Load the trained model, label encoder and feature list
 model = joblib.load("../models/xgb_koi.joblib")
