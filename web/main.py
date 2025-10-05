@@ -14,7 +14,8 @@ import io
 import csv
 import uuid
 import os
-from typing import Optional
+import json
+from typing import Optional, Dict
 
 
 app = FastAPI()
@@ -523,4 +524,152 @@ async def read_root(
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "feature_info": filtered_feature_info, "batch": batch},
+    )
+
+# --- Spectrometry (Macedo/Zalewski) artifacts ---
+try:
+    macedo_model = joblib.load("../models_macedo/lightgbm_macedo.joblib")
+    macedo_label_encoder = joblib.load("../models_macedo/label_encoder.joblib")
+    macedo_feature_list = joblib.load("../models_macedo/feature_list.joblib")  # post-cleaning feature list
+except FileNotFoundError:
+    macedo_model = None
+    macedo_label_encoder = None
+    macedo_feature_list = None
+
+def build_spectro_feature_info(cols) -> Dict[str, Dict]:
+    # Simple numeric inputs with default 0; customize labels here if you want
+    return {c: {"label": c, "type": "number", "default": 0} for c in (cols or [])}
+
+# Build fields only if artifacts are present
+spectro_feature_info = build_spectro_feature_info(macedo_feature_list)
+
+def prepare_spectro_X(df: pd.DataFrame) -> pd.DataFrame:
+    if macedo_feature_list is None:
+        # Should never get here because routes guard; keep a safe fallback
+        return df.copy()
+    df = df.copy()
+
+    # Coerce numeric; non-numeric -> NaN
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Keep only known features; add missing with NaN
+    for col in macedo_feature_list:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    X = df[macedo_feature_list].copy()
+
+    # Replace inf
+    X = X.replace([np.inf, -np.inf], np.nan)
+
+    # Fill remaining NaNs with column medians (safe default)
+    if X.isna().any().any():
+        X = X.fillna(X.median(numeric_only=True))
+
+    return X
+
+@app.get("/spectro", response_class=HTMLResponse)
+async def spectro_root(
+    request: Request,
+    batch_rows: Optional[int] = Query(None),
+    batch_file: Optional[str] = Query(None),
+):
+    spectro_batch = None
+    if batch_rows is not None and batch_file:
+        file_path = f"static/exports/{batch_file}"
+        if os.path.exists(file_path):
+            df_out = pd.read_csv(file_path)
+            preview_html = df_out.head(20).to_html(classes="table table-sm", index=False, border=0)
+            spectro_batch = {
+                "rows": int(batch_rows),
+                "download_href": f"/{file_path}",
+                "preview_html": preview_html,
+            }
+
+    return templates.TemplateResponse(
+        "spectro.html",
+        {
+            "request": request,
+            "spectro_feature_info": {},   # << hide manual form
+            "spectro_batch": spectro_batch,
+            "spectro_user_input": None,
+        },
+    )
+
+
+@app.post("/spectro", response_class=HTMLResponse)
+async def spectro_predict(request: Request):
+    if macedo_model is None or macedo_label_encoder is None or macedo_feature_list is None:
+        raise HTTPException(status_code=503, detail="Spectrometry model not available. Please train it first.")
+
+    form_data = await request.form()
+
+    # Collect inputs; fall back to defaults
+    features = {}
+    for key, info in spectro_feature_info.items():
+        val = form_data.get(key, info["default"])
+        try:
+            features[key] = float(val)
+        except Exception:
+            features[key] = np.nan
+
+    X = pd.DataFrame([features])
+    X = prepare_spectro_X(X)
+
+    preds = macedo_model.predict(X)
+    proba = macedo_model.predict_proba(X) if hasattr(macedo_model, "predict_proba") else None
+    conf = float(np.max(proba, axis=1)[0]) if proba is not None else 1.0
+
+    pred_label = macedo_label_encoder.inverse_transform(preds)[0]
+
+    return templates.TemplateResponse(
+        "spectro.html",
+        {
+            "request": request,
+            "spectro_feature_info": spectro_feature_info,
+            "spectro_prediction": pred_label,
+            "spectro_confidence": f"{conf * 100:.1f}%",
+            "spectro_user_input": features,
+        },
+    )
+
+@app.post("/spectro/upload")
+async def spectro_upload(request: Request, file: UploadFile = File(...)):
+    if macedo_model is None or macedo_label_encoder is None or macedo_feature_list is None:
+        raise HTTPException(status_code=503, detail="Spectrometry model not available. Please train it first.")
+
+    raw = await file.read()
+    try:
+        # spectrometry expects CSV; reuse _read_table_like if you want broader support
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read CSV: {e}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    X = prepare_spectro_X(df)
+
+    try:
+        preds = macedo_model.predict(X)
+        probs = macedo_model.predict_proba(X).max(axis=1) if hasattr(macedo_model, "predict_proba") else np.ones(len(X))
+    except Exception as e:
+        cols_list = ", ".join(list(df.columns)[:20]) + ("..." if len(df.columns) > 20 else "")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}. Parsed columns: [{cols_list}]")
+
+    df_out = df.copy()
+    df_out["prediction"] = macedo_label_encoder.inverse_transform(preds)
+    df_out["confidence"] = np.round(probs * 100, 2)
+
+    exports_dir = os.path.join("static", "exports")
+    os.makedirs(exports_dir, exist_ok=True)
+    fname = f"spectro_predictions_{uuid.uuid4().hex[:8]}.csv"
+    save_path = os.path.join(exports_dir, fname)
+    df_out.to_csv(save_path, index=False)
+
+    return RedirectResponse(
+        url=f"/spectro?batch_rows={len(df_out)}&batch_file={fname}",
+        status_code=303,
     )
