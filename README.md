@@ -3,6 +3,7 @@
 **Team:** Timothy Roch • Cyrus Yip • Ariyan Khayer
 
 AstroNets automates exoplanet triage using AI so researchers, students, and enthusiasts can quickly classify likely planets from open NASA data. We implement the two cornerstone techniques used in exoplanet discovery—**transits** and **radial velocity (spectrometry)**—and expose them through a clean **FastAPI + Jinja2** web app supporting single-entry and batch predictions.
+ [![Batch upload demo (Project's Presentation)](https://img.youtube.com/vi/B25vS75lQCY/0.jpg)](https://www.youtube.com/watch?v=B25vS75lQCY)
 
 ---
 
